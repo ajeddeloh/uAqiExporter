@@ -1,0 +1,7 @@
+Minimal program to interface with PlanTower AQI devices and Prometheus.
+
+Work in progress.
+
+Webserver is just about the dumbest server possible, but that's all that's
+needed. It doesn't even check what's sent to it, it just spits out the data
+regardless what it receives.
