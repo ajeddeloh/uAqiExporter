@@ -19,6 +19,9 @@
 #define MAX_HEADER_SIZE 4096
 #define PACKET_HEADER_MAGIC (htonl(0x424d001c))
 
+#define TTY_READ_TIMEOUT 100
+#define TCP_READ_TIMEOUT 1000
+
 static const char fmt[] = 
 "HTTP/1.1 200 OK\r\n"
 "Content-Type: text/plain\r\n\r\n"
@@ -41,8 +44,9 @@ static const char fmt[] =
 
 static const char error_msg[] = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\n"
 				"# Type success gauge\r\nsuccess 0\r\n";
-static const char entity_too_large_msg[] = "HTTP/1.1 413 Entity Too Large\r\n\r\nHeader size max: 4k";
-static const char internal_err_msg[] = "HTTP/1.1 500 Internal Server Error\r\n\r\nOops";
+static const char entity_too_large_msg[] = "HTTP/1.1 413 Entity Too Large\r\n\r\nHeader size max: 4k\r\n";
+static const char internal_err_msg[] = "HTTP/1.1 500 Internal Server Error\r\n\r\nOops\r\n";
+static const char timeout_msg[] = "HTTP/1.1 408 Request Timeout\r\n\r\nOops\r\n";
 
 // packet is all big endian. Since network order is BE, use htons/htonl to convert
 // doesn't need to be packed since everything is already aligned.
@@ -76,7 +80,18 @@ static int setup_tty(const char *dev);
 static int read_until_end(int sock) {
 	char buffer[MAX_HEADER_SIZE];
 	size_t len = 0;
+	struct pollfd pfd;
+	pfd.fd = sock;
+	pfd.events = POLLIN;
 	while (len < sizeof(buffer)) {
+		int poll_ret = poll(&pfd, 1, TCP_READ_TIMEOUT);
+		if (poll_ret == -1) {
+			perror("poll failed on tcp socket");
+			return -1;
+		}
+		if (poll_ret == 0) {
+			return -3;
+		}
 		ssize_t ret = recv(sock, buffer + len, sizeof(buffer) - len, 0);
 		if (ret == -1) {
 			perror("failed receiving from client socket");
@@ -87,8 +102,8 @@ static int read_until_end(int sock) {
 		// we don't really care if the client is making a valid http request or not,
 		// so if all they do is send two newlines that's alright with us.
 		if (len >= 4 && (memcmp(buffer+len-4, "\r\n\r\n", 4) == 0 ||
-				memcmp(buffer+len-4, "\n\r\n\r", 4) ||
-				memcmp(buffer+len-2, "\n\n", 2))) {
+				memcmp(buffer+len-4, "\n\r\n\r", 4) == 0 ||
+				memcmp(buffer+len-2, "\n\n", 2) == 0)) {
 			return 0;
 		}
 	}
@@ -137,7 +152,7 @@ static int send_cmd(int fd, char cmd, char arg1, char arg2, void *buf, size_t le
 	struct pollfd pfd;
 	pfd.fd = fd;
 	pfd.events = POLLIN;
-	int poll_ret = poll(&pfd, 1, 1000);
+	int poll_ret = poll(&pfd, 1, TTY_READ_TIMEOUT);
 	if (poll_ret == -1) {
 		perror("poll failed");
 		return -1;
@@ -214,6 +229,40 @@ static int setup_tty(const char *dev) {
 	return fd;
 }
 
+void write_sensor_response(int sock, int tty_fd) {
+	struct packet p;
+	int err = send_cmd(tty_fd, CMD_READ, 0, 0, &p, sizeof(p));
+	if (err == -1) {
+		// try again, sometimes the sensor misses a request
+		err = send_cmd(tty_fd, CMD_READ, 0, 0, &p, sizeof(p));
+	}
+	int check = 0;
+	for (int i = 0; i < 30; i++) {
+		check += ((uint8_t*)&p)[i];
+	}
+
+
+	if (err == -1 || check != htons(p.check) || p.header != PACKET_HEADER_MAGIC) {
+		err = write(sock, error_msg, sizeof(error_msg) - 1); // don't write nul
+	} else {
+		err = dprintf(sock, fmt, htons(p.data[0]),
+				htons(p.data[1]),
+				htons(p.data[2]),
+				htons(p.data[3]),
+				htons(p.data[4]),
+				htons(p.data[5]),
+				htons(p.data[6]),
+				htons(p.data[7]),
+				htons(p.data[8]),
+				htons(p.data[9]),
+				htons(p.data[10]),
+				htons(p.data[11]));
+	}
+	if (err == -1) {
+		fputs("error writing response to client socket\n", stderr);
+	}
+}
+
 int main(int argc, char **argv) {
 	if (argc < 3 || argc > 4) {
 		fputs("usage: aqi host port [ttyS0]\n", stderr);
@@ -270,44 +319,21 @@ int main(int argc, char **argv) {
 			continue;
 		}
 		int err = read_until_end(sock);
-		if (err == -1) {
-			write(sock, internal_err_msg, sizeof(internal_err_msg) - 1);
-		} else if (err == -2) {
-			write(sock, entity_too_large_msg, sizeof(entity_too_large_msg) - 1);
-		} else {
-			write_sensor_response(sock, tty_fd);
+		switch (err) {
+			case -1:
+				write(sock, internal_err_msg, sizeof(internal_err_msg) - 1);
+				break;
+			case -2:
+				write(sock, entity_too_large_msg, sizeof(entity_too_large_msg) - 1);
+				break;
+			case -3:
+				write(sock, timeout_msg, sizeof(timeout_msg) - 1);
+				break;
+			default:
+				write_sensor_response(sock, tty_fd);
 		}
 
 		shutdown(sock, SHUT_RDWR);
 		close(sock);
-	}
-}
-
-void write_sensor_response(int sock, int tty_fd) {
-	struct packet p;
-	int err = send_cmd(tty_fd, CMD_READ, 0, 0, &p, 32);
-	int check = 0;
-	for (int i = 0; i < 30; i++) {
-		check += ((uint8_t*)&p)[i];
-	}
-
-	if (err == -1 || check != htons(p.check) || p.header != PACKET_HEADER_MAGIC) {
-		err = write(sock, error_msg, sizeof(error_msg) - 1); // don't write nul
-	} else {
-		err = dprintf(sock, fmt, htons(p.data[0]),
-				htons(p.data[1]),
-				htons(p.data[2]),
-				htons(p.data[3]),
-				htons(p.data[4]),
-				htons(p.data[5]),
-				htons(p.data[6]),
-				htons(p.data[7]),
-				htons(p.data[8]),
-				htons(p.data[9]),
-				htons(p.data[10]),
-				htons(p.data[11]));
-	}
-	if (err == -1) {
-		fputs("error writing response to client socket\n", stderr);
 	}
 }
