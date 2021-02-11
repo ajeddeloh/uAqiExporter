@@ -25,28 +25,28 @@
 static const char fmt[] = 
 "HTTP/1.1 200 OK\r\n"
 "Content-Type: text/plain\r\n\r\n"
-"# TYPE success gauge\r\n"
-"success 1\r\n"
-"# TYPE pm gauge\r\n"
-"pm{size=\"1.0\"} %d\r\n"
-"pm{size=\"2.5\"} %d\r\n"
-"pm{size=\"10.0\"} %d\r\n"
-"pm{size=\"1.0\",atmospheric=\"true\"} %d\r\n"
-"pm{size=\"2.5\",atmospheric=\"true\"} %d\r\n"
-"pm{size=\"10.0\",atmospheric=\"true\"} %d\r\n"
-"# TYPE n gauge\r\n"
-"n{size=\"0.3\"} %d\r\n"
-"n{size=\"0.5\"} %d\r\n"
-"n{size=\"1.0\"} %d\r\n"
-"n{size=\"2.5\"} %d\r\n"
-"n{size=\"5.0\"} %d\r\n"
-"n{size=\"10.0\"} %d\r\n";
+"# TYPE success gauge\n"
+"success 1\n"
+"# TYPE pm gauge\n"
+"pm{size=\"1.0\"} %d\n"
+"pm{size=\"2.5\"} %d\n"
+"pm{size=\"10.0\"} %d\n"
+"pm{size=\"1.0\",atmospheric=\"true\"} %d\n"
+"pm{size=\"2.5\",atmospheric=\"true\"} %d\n"
+"pm{size=\"10.0\",atmospheric=\"true\"} %d\n"
+"# TYPE n gauge\n"
+"n{size=\"0.3\"} %d\n"
+"n{size=\"0.5\"} %d\n"
+"n{size=\"1.0\"} %d\n"
+"n{size=\"2.5\"} %d\n"
+"n{size=\"5.0\"} %d\n"
+"n{size=\"10.0\"} %d\n";
 
 static const char error_msg[] = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\n"
-				"# Type success gauge\r\nsuccess 0\r\n";
-static const char entity_too_large_msg[] = "HTTP/1.1 413 Entity Too Large\r\n\r\nHeader size max: 4k\r\n";
-static const char internal_err_msg[] = "HTTP/1.1 500 Internal Server Error\r\n\r\nOops\r\n";
-static const char timeout_msg[] = "HTTP/1.1 408 Request Timeout\r\n\r\nOops\r\n";
+				"# Type success gauge\nsuccess 0\n";
+static const char entity_too_large_msg[] = "HTTP/1.1 413 Entity Too Large\r\n\r\nHeader size max: 4k\n";
+static const char internal_err_msg[] = "HTTP/1.1 500 Internal Server Error\r\n\r\nOops\n";
+static const char timeout_msg[] = "HTTP/1.1 408 Request Timeout\r\n\r\nOops\n";
 
 // packet is all big endian. Since network order is BE, use htons/htonl to convert
 // doesn't need to be packed since everything is already aligned.
